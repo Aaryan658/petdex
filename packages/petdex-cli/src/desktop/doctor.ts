@@ -13,7 +13,7 @@ import path from "node:path";
 
 import pc from "picocolors";
 
-import { AGENTS, antigravitySkillDir } from "../hooks/agents.js";
+import { AGENTS, antigravityMcpConfigPaths, antigravitySkillDir } from "../hooks/agents.js";
 import { getKillswitchState } from "../hooks/killswitch.js";
 import { desktopBinPath, sidecarPath } from "./install.js";
 
@@ -231,7 +231,16 @@ function checkKillswitch(): CheckResult {
 function checkHooksInstalled(): CheckResult[] {
   const results: CheckResult[] = [];
   for (const agent of AGENTS) {
-    const hookFileExists = existsSync(agent.configFile);
+    // Install may have written to either the primary or secondary MCP config
+    // path (see resolveAntigravityMcpConfigPath), so probe both for Antigravity.
+    const resolvedConfigFile =
+      agent.id === "antigravity"
+        ? (() => {
+            const [primary, secondary] = antigravityMcpConfigPaths();
+            return existsSync(primary) ? primary : existsSync(secondary) ? secondary : primary;
+          })()
+        : agent.configFile;
+    const hookFileExists = existsSync(resolvedConfigFile);
     const slashFileExists = existsSync(agent.slashCommandPath);
     if (!existsSync(agent.configDir)) {
       results.push({
@@ -244,7 +253,7 @@ function checkHooksInstalled(): CheckResult[] {
     let hookOk = false;
     if (hookFileExists) {
       try {
-        const text = readFileSync(agent.configFile, "utf8");
+        const text = readFileSync(resolvedConfigFile, "utf8");
         // Antigravity uses MCP config (look for "petdex" under mcpServers)
         // instead of hook URLs. All other agents embed the sidecar URL.
         if (agent.id === "antigravity") {

@@ -6,6 +6,7 @@
  *
  * Detects 4 agents today; adding a 5th is a single AGENTS entry away.
  */
+import { execSync } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -338,18 +339,22 @@ function collectCommands(entry: unknown): string[] {
  * This function is called from installForAgent when agent.id === "antigravity".
  */
 /**
- * Check whether the persisted petdex binary exists at the expected
- * location. The mcp-server subcommand is compiled into the same bundle,
- * so file existence implies subcommand availability.
- *
- * We avoid running the binary here (stdin/stdout MCP protocol is hard
- * to probe without a full handshake) — if the file is from an older
- * petdex version, the user will see the startup failure in Antigravity's
- * MCP Servers panel and can re-run `petdex hooks install` to refresh it.
+ * Verify the persisted binary exists AND is a runnable petdex CLI
+ * (has the --version command). A stale ~/.petdex/bin/petdex.js from
+ * an older install might exist but lack the mcp-server subcommand,
+ * which would make the Antigravity MCP server silently fail to start.
  */
 async function validatePersistedBinary(): Promise<boolean> {
   try {
     await stat(PERSIST_PATH);
+    // Smoke-test: --version exits 0 only if this is a real Node.js script.
+    // If the file is truncated, corrupt, or from an incompatible build,
+    // execSync throws and we return false.
+    execSync(`"${process.execPath}" "${PERSIST_PATH}" --version`, {
+      encoding: "utf8",
+      timeout: 5000,
+      stdio: "pipe",
+    });
     return true;
   } catch {
     return false;
@@ -357,28 +362,23 @@ async function validatePersistedBinary(): Promise<boolean> {
 }
 
 async function installForAntigravity(agent: Agent): Promise<void> {
-  // 0. Validate persisted binary exists with mcp-server support.
-  // Antigravity's MCP server runs via node ~/.petdex/bin/petdex.js mcp-server.
-  // Unlike hook agents (which fall back to curl-only state hooks on failure),
-  // Antigravity has no fallback — a missing or stale binary means the MCP
-  // server silently fails to start, making the install appear successful.
-  let binaryOk = await validatePersistedBinary();
-  if (!binaryOk) {
-    // persistRunningBinary() already ran best-effort in runInstall().
-    // Try once more in case the user just installed and the first attempt
-    // raced with filesystem flush.
-    try {
-      const result = await persistRunningBinary();
-      if (result.ok) binaryOk = await validatePersistedBinary();
-    } catch {
-      // Will error below
-    }
-  }
+  // 0. Always persist a fresh snapshot of the running CLI binary, then
+  // validate it supports the mcp-server subcommand. Antigravity's MCP server
+  // runs via node ~/.petdex/bin/petdex.js mcp-server. Unlike hook agents
+  // (which fall back to curl-only state hooks on failure), Antigravity has
+  // no fallback — a missing or stale binary silently fails to start, making
+  // the install appear successful.
+  //
+  // We always persist here (not just when the file is missing) because:
+  //   (a) persistRunningBinary() in runInstall() is best-effort and may skip
+  //   (b) a stale binary from an older version might exist but lack mcp-server
+  await persistRunningBinary().catch(() => {});
+  const binaryOk = await validatePersistedBinary();
   if (!binaryOk) {
     throw new Error(
-      `Petdex persisted binary not found at ${PERSIST_PATH}.\n` +
+      `Petdex persisted binary missing or not functional: ${PERSIST_PATH}.\n` +
       `  The mcp-server subcommand is required for Antigravity integration.\n` +
-      `  Run \`npx petdex@latest hooks install\` to persist the current binary, then re-run.`,
+      `  Run \`npx petdex@latest hooks install\` to persist a fresh binary, then re-run.`,
     );
   }
 
