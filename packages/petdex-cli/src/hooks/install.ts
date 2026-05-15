@@ -18,7 +18,13 @@ import {
   PETDEX_PORT,
   type PostInstallNote,
   SIDECAR_URL,
+  antigravityMcpConfigPath,
+  antigravitySkillDir,
 } from "./agents.js";
+import {
+  generateSkillMd,
+  generateMcpConfig,
+} from "./antigravity-skill.js";
 import { installSlashCommand } from "./slash-command.js";
 
 type Detection = { agent: Agent; installed: boolean };
@@ -192,6 +198,12 @@ export async function installForAgent(agent: Agent): Promise<InstallResult> {
     return { backupPath };
   }
 
+  // Antigravity uses MCP config + Agent Skill instead of hooks.
+  if (agent.id === "antigravity") {
+    await installForAntigravity(agent);
+    return { backupPath: null };
+  }
+
   // JSON-based agents: merge our hooks into existing settings.
   // readJson distinguishes "missing" (treat as fresh config) from
   // "exists but unreadable / unparseable" (refuse to write — would
@@ -303,5 +315,64 @@ function collectCommands(entry: unknown): string[] {
   }
   walk(entry);
   return acc;
+}
+
+/**
+ * Install petdex hooks for Antigravity.
+ *
+ * Unlike hook-based agents (Claude Code, Codex, Gemini CLI), Antigravity
+ * integrates via two mechanisms:
+ *
+ * 1. MCP Server injection: We add a "petdex" entry to Antigravity's
+ *    mcp_config.json so the agent can call petdex_set_state etc.
+ * 2. Agent Skill: We install a SKILL.md to ~/.antigravity/skills/petdex/
+ *    that tells the agent WHEN to call the MCP tools.
+ *
+ * This function is called from installForAgent when agent.id === "antigravity".
+ */
+async function installForAntigravity(agent: Agent): Promise<void> {
+  // 1. Install/update the MCP config
+  const mcpConfigPath = antigravityMcpConfigPath();
+  await mkdir(path.dirname(mcpConfigPath), { recursive: true });
+  const mcpConfig = generateMcpConfig();
+  let existing: Record<string, unknown> = {};
+  try {
+    const text = await readFile(mcpConfigPath, "utf8");
+    existing = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    // File doesn't exist or is invalid — start fresh
+  }
+  const existingServers = (existing.mcpServers ?? {}) as Record<string, unknown>;
+  const merged = {
+    ...existing,
+    mcpServers: {
+      ...existingServers,
+      ...(mcpConfig.mcpServers as Record<string, unknown>),
+    },
+  };
+  await writeFile(mcpConfigPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+
+  // 2. Install the Agent Skill
+  const skillDir = antigravitySkillDir();
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(path.join(skillDir, "SKILL.md"), generateSkillMd(), "utf8");
+
+  // 3. Also install at project-level .agents/skills/petdex/ if inside a git repo
+  try {
+    const { execSync } = await import("node:child_process");
+    const gitRoot = execSync("git rev-parse --show-toplevel", {
+      encoding: "utf8",
+      timeout: 3000,
+    })
+      .toString()
+      .trim();
+    if (gitRoot) {
+      const projectSkillDir = path.join(gitRoot, ".agents", "skills", "petdex");
+      await mkdir(projectSkillDir, { recursive: true });
+      await writeFile(path.join(projectSkillDir, "SKILL.md"), generateSkillMd(), "utf8");
+    }
+  } catch {
+    // Not in a git repo — non-fatal
+  }
 }
 

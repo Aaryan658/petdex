@@ -62,7 +62,7 @@ export type PostInstallNote = {
 };
 
 export type Agent = {
-  id: "claude-code" | "codex" | "gemini" | "opencode";
+  id: "claude-code" | "codex" | "gemini" | "opencode" | "antigravity";
   displayName: string;
   configDir: string;
   configFile: string;
@@ -104,6 +104,37 @@ export function resolveOpenCodeConfigDir(
   if (env.OPENCODE_CONFIG_DIR) return env.OPENCODE_CONFIG_DIR;
   if (env.XDG_CONFIG_HOME) return path.join(env.XDG_CONFIG_HOME, "opencode");
   return path.join(home, ".config", "opencode");
+}
+
+/** Antigravity MCP config path (global scope). */
+export function antigravityMcpConfigPath(): string {
+  // Antigravity stores global MCP config in its user data directory.
+  // On Windows: %LOCALAPPDATA%\Programs\antigravity\User\mcp_config.json
+  // On macOS/Linux: ~/.antigravity/mcp_config.json
+  const localAppData =
+    process.env.LOCALAPPDATA ?? path.join(HOME, "AppData", "Local");
+  const winPath = path.join(
+    localAppData,
+    "Programs",
+    "antigravity",
+    "User",
+    "mcp_config.json",
+  );
+  // Prefer ~/.antigravity/mcp_config.json (used on macOS/Linux and
+  // some Windows Antigravity configurations), fall back to the
+  // Programs dir path.
+  const unixPath = path.join(HOME, ".antigravity", "mcp_config.json");
+  // We return the path that exists, or the Unix-style default.
+  // The installer will try both.
+  return unixPath;
+}
+
+export function antigravityGlobalMcpConfigPath(): string {
+  return antigravityMcpConfigPath();
+}
+
+export function antigravitySkillDir(): string {
+  return path.join(HOME, ".antigravity", "skills", "petdex");
 }
 
 export const AGENTS: Agent[] = [
@@ -457,6 +488,38 @@ export const AGENTS: Agent[] = [
         {
           level: "info",
           message: `OpenCode plugin installed at ${tildePath(path.join(OPENCODE_CONFIG_DIR, "plugins", "petdex.js"))}. If hooks still do not load, start OpenCode with the same OPENCODE_CONFIG_DIR/XDG_CONFIG_HOME environment used during install.`,
+        },
+      ];
+    },
+  },
+  {
+    id: "antigravity",
+    displayName: "Antigravity",
+    configDir: path.join(HOME, ".antigravity"),
+    // Antigravity doesn't use a hooks JSON file. Instead we inject an
+    // MCP server config and an Agent Skill. We point configFile to the
+    // MCP config so the install/uninstall system knows what to write.
+    configFile: antigravityMcpConfigPath(),
+    slashCommandPath: path.join(
+      HOME,
+      ".antigravity",
+      "skills",
+      "petdex",
+      "SKILL.md",
+    ),
+    docsUrl: "https://antigravity.google/docs/skills",
+    // Antigravity doesn't support lifecycle hooks (BeforeTool/AfterTool).
+    // Instead we provide an MCP server + Agent Skill that tells the agent
+    // to call MCP tools before/after each action.
+    hookEntries: [],
+    build() {
+      return {};
+    },
+    async postInstallChecks() {
+      return [
+        {
+          level: "action",
+          message: `Antigravity uses MCP instead of hooks. The petdex MCP server was injected into your Antigravity MCP config.\n\nTo activate:\n  1. Open Antigravity → Agent Panel → ... → MCP Servers\n  2. Verify "petdex" MCP server is listed and running\n  3. The Petdex Agent Skill is installed at ~/.antigravity/skills/petdex/\n\nThe agent should start updating the mascot automatically when working in this project.`,
         },
       ];
     },

@@ -25,6 +25,8 @@ import {
   type Agent,
   PETDEX_PORT,
   SIDECAR_URL,
+  antigravityMcpConfigPath,
+  antigravitySkillDir,
 } from "./agents.js";
 import { tokenPath } from "./killswitch.js";
 import { uninstallSlashCommand } from "./slash-command.js";
@@ -123,14 +125,43 @@ type UninstallResult = {
 };
 
 async function uninstallForAgent(agent: Agent): Promise<UninstallResult> {
-  // OpenCode: just delete the plugin file we wrote. The plugin file
-  // path is OURS (we created it under plugins/petdex.js); it's safe
-  // to remove without parsing.
+  // OpenCode: just delete the plugin file we wrote.
   if (agent.id === "opencode") {
     if (!existsSync(agent.configFile)) return { removed: false, backupPath: null };
     const backupPath = await maybeBackup(agent.configFile);
     await rm(agent.configFile, { force: true });
     return { removed: true, backupPath };
+  }
+
+  // Antigravity: remove the MCP server entry and the Skill directory.
+  if (agent.id === "antigravity") {
+    let changed = false;
+    // Strip petdex from MCP config
+    try {
+      const mcpConfigPath = antigravityMcpConfigPath();
+      if (existsSync(mcpConfigPath)) {
+        const text = await readFile(mcpConfigPath, "utf8");
+        const parsed = JSON.parse(text) as Record<string, unknown>;
+        const servers = (parsed.mcpServers ?? {}) as Record<string, unknown>;
+        if (servers.petdex) {
+          const { petdex: _remove, ...rest } = servers;
+          parsed.mcpServers = rest;
+          const backupPath = await maybeBackup(mcpConfigPath);
+          await writeFile(mcpConfigPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+          changed = true;
+        }
+      }
+    } catch {
+      // Best effort
+    }
+    // Remove the Skill directory
+    try {
+      await rm(antigravitySkillDir(), { recursive: true, force: true });
+      changed = true;
+    } catch {
+      // Best effort
+    }
+    return { removed: changed, backupPath: null };
   }
 
   // JSON-config agents: read, strip our entries, rewrite.

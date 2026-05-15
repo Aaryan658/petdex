@@ -287,6 +287,7 @@ const html_tail =
     \\    'codex': 'agents/codex.svg',
     \\    'gemini': 'agents/gemini.svg',
     \\    'opencode': 'agents/opencode.svg',
+    \\    'antigravity': 'agents/antigravity.svg',
     \\  };
     \\  function agentAvatarSrc(source) {
     \\    return AGENT_AVATARS[source] || 'agents/fallback.svg';

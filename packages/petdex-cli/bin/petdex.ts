@@ -24,6 +24,7 @@ import {
 } from "../src/desktop/process.js";
 import { runUpdate } from "../src/desktop/update.js";
 import { runInstall as runHooksInstall } from "../src/hooks/install.js";
+import { runMcpServer } from "../src/hooks/mcp-server.js";
 import {
   getKillswitchState,
   setKillswitchState,
@@ -168,6 +169,9 @@ async function main() {
     case "list":
       await cmdList();
       break;
+    case "mcp-server":
+      await runMcpServer();
+      break;
     case "hooks":
       await cmdHooks(args.slice(1));
       break;
@@ -228,6 +232,7 @@ function printHelp() {
       `    ${pc.bold("install")} <slug...>  Install one or more pets into ~/.petdex/pets and ~/.codex/pets`,
       `    ${pc.bold("install desktop")}    Install the petdex-desktop binary (alternative to the .dmg)`,
       `    ${pc.bold("list")}               List approved pets`,
+      `    ${pc.bold("mcp-server")}          Start the MCP protocol server for Antigravity integration`,
       `    ${pc.bold("hooks install")}      Wire petdex-desktop into your coding agents`,
       `    ${pc.bold("toggle")}             One-shot wake/sleep. Flips the mascot on or off depending on current state`,
       `    ${pc.bold("up")}                 Force-wake the mascot. Enables hooks AND launches petdex-desktop`,
