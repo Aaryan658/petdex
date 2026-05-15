@@ -39,9 +39,13 @@ description: >
 
 # Petdex Desktop Mascot
 
-When this skill is active, call the petdex MCP tools at these points:
+When this skill is active, call the petdex MCP tools at the points below.
+**Important:** Do NOT call Petdex MCP tools around calls to Petdex MCP tools
+themselves (petdex_set_state, petdex_show_bubble, petdex_status). Only
+wrap non-Petdex tool calls — otherwise every state update would trigger
+another update in a recursive loop.
 
-## Before every tool use
+## Before every non-Petdex tool use
 
 Call \`petdex_set_state\` with:
   - state: "running"
@@ -58,7 +62,7 @@ to do. Examples:
 The bubble text should be short (under 40 chars) and in present tense
 ("Reading", "Running", "Editing" — never past tense for pre-tool calls).
 
-## After every tool use
+## After every non-Petdex tool use
 
 Call \`petdex_set_state\` with:
   - state: "idle"
@@ -71,7 +75,8 @@ Call \`petdex_set_state\` with:
 
 ## On error
 
-If you encounter an error mid-task, call \`petdex_set_state\` with:
+If you encounter an error mid-task (from a non-Petdex tool), call
+\`petdex_set_state\` with:
   - state: "failed"
   - duration: 2500
 
@@ -89,6 +94,9 @@ mcp_config.json):
     jumping, failed, review, waiting)
   - \`petdex_show_bubble\`: Show a speech bubble with text
   - \`petdex_status\`: Check if the mascot is reachable
+
+  **Do not** wrap these tools with Petdex calls. Only non-Petdex tools
+  should trigger petdex_set_state / petdex_show_bubble.
 
 ## Configuration
 

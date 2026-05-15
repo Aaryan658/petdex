@@ -185,11 +185,17 @@ export async function installForAgent(agent: Agent): Promise<InstallResult> {
 
   const config = agent.build();
 
-  // /petdex slash command — installed alongside the hook config so
-  // users can toggle the killswitch from inside their agent without
-  // dropping to a shell. Idempotent: overwrites our own file, never
-  // user-authored content (we own the path under <agent>/commands/).
-  await installSlashCommand(agent);
+  // Antigravity doesn't use slash commands — its Agent Skill (SKILL.md)
+  // lives at the same path that slashCommandPath points to, so calling
+  // installSlashCommand would overwrite the skill with a slash-command
+  // body. Skip it entirely; the Antigravity installer handles the path.
+  if (agent.id !== "antigravity") {
+    // /petdex slash command — installed alongside the hook config so
+    // users can toggle the killswitch from inside their agent without
+    // dropping to a shell. Idempotent: overwrites our own file, never
+    // user-authored content (we own the path under <agent>/commands/).
+    await installSlashCommand(agent);
+  }
 
   // OpenCode plugin is a JS source file — write it whole, no merge.
   if (agent.id === "opencode") {
@@ -358,27 +364,9 @@ async function installForAntigravity(agent: Agent): Promise<void> {
   };
   await writeFile(mcpConfigPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
 
-  // 2. Install the Agent Skill
+  // 2. Install the Agent Skill (global scope only)
   const skillDir = antigravitySkillDir();
   await mkdir(skillDir, { recursive: true });
   await writeFile(path.join(skillDir, "SKILL.md"), generateSkillMd(), "utf8");
-
-  // 3. Also install at project-level .agents/skills/petdex/ if inside a git repo
-  try {
-    const { execSync } = await import("node:child_process");
-    const gitRoot = execSync("git rev-parse --show-toplevel", {
-      encoding: "utf8",
-      timeout: 3000,
-    })
-      .toString()
-      .trim();
-    if (gitRoot) {
-      const projectSkillDir = path.join(gitRoot, ".agents", "skills", "petdex");
-      await mkdir(projectSkillDir, { recursive: true });
-      await writeFile(path.join(projectSkillDir, "SKILL.md"), generateSkillMd(), "utf8");
-    }
-  } catch {
-    // Not in a git repo — non-fatal
-  }
 }
 
