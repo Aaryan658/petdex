@@ -141,8 +141,12 @@ const TOOLS = [
 ];
 
 function sendMessage(msg: JsonRpcResponse): void {
-  const line = JSON.stringify(msg);
-  process.stdout.write(`${line}\n`);
+  const body = JSON.stringify(msg);
+  const encoded = new TextEncoder().encode(body);
+  // MCP stdio framing: Content-Length header + empty line + JSON body
+  const header = `Content-Length: ${encoded.length}\r\n\r\n`;
+  process.stdout.write(header);
+  process.stdout.write(body);
 }
 
 function errorResponse(
@@ -323,8 +327,18 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
   }
 }
 
+/**
+ * MCP stdio transport uses Content-Length framing (not newline-delimited JSON):
+ *
+ *   Content-Length: 45\r\n
+ *   \r\n
+ *   {"jsonrpc":"2.0","id":1,"result":{...}}
+ *
+ * The header is terminated by \r\n\r\n. The body is exactly Content-Length bytes
+ * (raw, not line-oriented). We buffer raw bytes and extract messages one at a time.
+ */
 export async function runMcpServer(): Promise<void> {
-  let buffer = "";
+  let buffer = new Uint8Array(0);
   let pending = 0;
   let draining = false;
 
@@ -332,18 +346,44 @@ export async function runMcpServer(): Promise<void> {
     if (pending === 0) process.exit(0);
   }
 
-  process.stdin.setEncoding("utf8");
-  process.stdin.on("data", (chunk: string) => {
-    buffer += chunk;
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
+  process.stdin.on("data", (chunk: Uint8Array | string) => {
+    const raw = typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
+    // Append to buffer
+    const newBuf = new Uint8Array(buffer.length + raw.length);
+    newBuf.set(buffer);
+    newBuf.set(raw, buffer.length);
+    buffer = newBuf;
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
+    // Process as many complete MCP frames as possible
+    while (true) {
+      // Look for \r\n\r\n (empty line) to find the end of headers
+      const headerEnd = findSequence(buffer, new Uint8Array([0x0d, 0x0a, 0x0d, 0x0a]));
+      if (headerEnd === -1) break; // Incomplete headers — wait for more data
+
+      // Extract header section and parse Content-Length
+      const headerSection = buffer.slice(0, headerEnd);
+      const headerStr = new TextDecoder().decode(headerSection);
+      const contentLengthMatch = headerStr.match(/Content-Length:\s*(\d+)/i);
+      if (!contentLengthMatch) {
+        // Malformed header — discard this frame and try the next
+        buffer = buffer.slice(headerEnd + 4);
+        continue;
+      }
+      const contentLength = parseInt(contentLengthMatch[1], 10);
+      const bodyStart = headerEnd + 4; // Skip \r\n\r\n
+      const frameEnd = bodyStart + contentLength;
+
+      if (buffer.length < frameEnd) break; // Incomplete body — wait for more data
+
+      // Extract and parse the JSON body
+      const bodyBytes = buffer.slice(bodyStart, frameEnd);
+      const bodyStr = new TextDecoder().decode(bodyBytes);
+
+      // Slice remaining data off the buffer
+      buffer = buffer.slice(frameEnd);
 
       try {
-        const req = JSON.parse(trimmed) as JsonRpcRequest;
+        const req = JSON.parse(bodyStr) as JsonRpcRequest;
         pending++;
         handleRequest(req)
           .catch((err) => {
@@ -370,12 +410,23 @@ export async function runMcpServer(): Promise<void> {
 
   process.stdin.on("end", () => {
     draining = true;
-    // Give pending requests up to 3s to complete before force-exit
     exitWhenDrained();
     setTimeout(() => process.exit(0), 3000).unref();
   });
 
-  // Do NOT write anything to stdout here. The MCP lifecycle requires
-  // the client's `initialize` request to be the first interaction.
-  // We wait silently until input arrives on stdin.
+  // Do NOT write anything to stdout here.
+}
+
+/**
+ * Find the first occurrence of needle (a Uint8Array) in haystack.
+ * Returns the starting index, or -1 if not found.
+ */
+function findSequence(haystack: Uint8Array, needle: Uint8Array): number {
+  outer: for (let i = 0; i <= haystack.length - needle.length; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (haystack[i + j] !== needle[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
 }

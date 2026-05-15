@@ -14,7 +14,7 @@
  * fresh token (handy after a security-relevant uninstall).
  */
 import { existsSync } from "node:fs";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import * as p from "@clack/prompts";
@@ -162,10 +162,15 @@ async function uninstallForAgent(agent: Agent): Promise<UninstallResult> {
         // Best effort for each path
       }
     }
-    // Remove the Skill directory
+    // Remove the Skill directory — only mark changed if it actually existed
     try {
-      await rm(antigravitySkillDir(), { recursive: true, force: true });
-      changed = true;
+      const skillDir = antigravitySkillDir();
+      let skillExists = false;
+      try { await stat(skillDir); skillExists = true; } catch { /* not present */ }
+      if (skillExists) {
+        await rm(skillDir, { recursive: true, force: true });
+        changed = true;
+      }
     } catch {
       // Best effort
     }
