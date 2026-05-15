@@ -13,7 +13,7 @@ import path from "node:path";
 
 import pc from "picocolors";
 
-import { AGENTS } from "../hooks/agents.js";
+import { AGENTS, antigravitySkillDir } from "../hooks/agents.js";
 import { getKillswitchState } from "../hooks/killswitch.js";
 import { desktopBinPath, sidecarPath } from "./install.js";
 
@@ -245,8 +245,14 @@ function checkHooksInstalled(): CheckResult[] {
     if (hookFileExists) {
       try {
         const text = readFileSync(agent.configFile, "utf8");
-        hookOk =
-          text.includes("127.0.0.1:7777/state") || text.includes("/state");
+        // Antigravity uses MCP config (look for "petdex" under mcpServers)
+        // instead of hook URLs. All other agents embed the sidecar URL.
+        if (agent.id === "antigravity") {
+          hookOk = text.includes('"petdex"') || text.includes("petdex");
+        } else {
+          hookOk =
+            text.includes("127.0.0.1:7777/state") || text.includes("/state");
+        }
       } catch {
         hookOk = false;
       }
@@ -257,6 +263,21 @@ function checkHooksInstalled(): CheckResult[] {
         label: agent.displayName,
         detail: "petdex hook NOT detected",
         hint: "Run `petdex hooks install`",
+      });
+      continue;
+    }
+    // Antigravity uses a SKILL.md instead of a /petdex slash command
+    if (agent.id === "antigravity") {
+      const skillExists = existsSync(antigravitySkillDir());
+      results.push({
+        status: skillExists ? "ok" : "warn",
+        label: agent.displayName,
+        detail: skillExists
+          ? "MCP server + Skill installed"
+          : "MCP server configured, but Skill not found",
+        hint: skillExists
+          ? undefined
+          : "Re-run `petdex hooks install` to install the Agent Skill.",
       });
       continue;
     }

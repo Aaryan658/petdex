@@ -71,10 +71,15 @@ export async function runUninstall(
           `  ${pc.dim("•")} ${pc.bold(agent.displayName)} ${pc.dim("(no petdex entries found)")}`,
         );
       }
-      // Always try to clean up the slash command file even if the
-      // hook config had no petdex entries — the user might have run
-      // an older version that wrote one without writing hooks.
-      await uninstallSlashCommand(agent);
+      // Antigravity manages its slash command path as the Agent Skill
+      // SKILL.md (handled within uninstallForAgent), so skip the generic
+      // slash command cleanup to avoid a double-remove on the same file.
+      if (agent.id !== "antigravity") {
+        // Always try to clean up the slash command file even if the
+        // hook config had no petdex entries — the user might have run
+        // an older version that wrote one without writing hooks.
+        await uninstallSlashCommand(agent);
+      }
     } catch (err) {
       summary.push(
         `  ${pc.red("✗")} ${pc.bold(agent.displayName)} ${pc.red(err instanceof Error ? err.message : String(err))}`,

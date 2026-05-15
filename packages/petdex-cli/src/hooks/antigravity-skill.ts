@@ -14,10 +14,6 @@ export function antigravitySkillDir(): string {
   return path.join(homedir(), ".antigravity", "skills", "petdex");
 }
 
-export function antigravityMcpConfigPath(): string {
-  return path.join(homedir(), ".antigravity", "mcp_config.json");
-}
-
 /**
  * Generate the SKILL.md content for the Petdex Agent Skill.
  *
