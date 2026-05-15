@@ -18,7 +18,7 @@ import {
   PETDEX_PORT,
   type PostInstallNote,
   SIDECAR_URL,
-  antigravityMcpConfigPath,
+  resolveAntigravityMcpConfigPath,
   antigravitySkillDir,
 } from "./agents.js";
 import {
@@ -332,19 +332,25 @@ function collectCommands(entry: unknown): string[] {
  */
 async function installForAntigravity(agent: Agent): Promise<void> {
   // 1. Install/update the MCP config
-  const mcpConfigPath = antigravityMcpConfigPath();
+  const mcpConfigPath = await resolveAntigravityMcpConfigPath();
   await mkdir(path.dirname(mcpConfigPath), { recursive: true });
   const mcpConfig = generateMcpConfig();
-  let existing: Record<string, unknown> = {};
-  try {
-    const text = await readFile(mcpConfigPath, "utf8");
-    existing = JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    // File doesn't exist or is invalid — start fresh
+
+  const existing = await readJson(mcpConfigPath);
+  if (existing.kind === "error") {
+    throw new Error(
+      `Refusing to overwrite ${mcpConfigPath}: ${existing.message}.\n   Fix the file (or rename it) and run \`petdex hooks install\` again.`,
+    );
   }
-  const existingServers = (existing.mcpServers ?? {}) as Record<string, unknown>;
+  const backupPath =
+    existing.kind === "ok" ? await maybeBackup(mcpConfigPath) : null;
+  const base =
+    existing.kind === "ok"
+      ? (existing.value as Record<string, unknown>)
+      : {};
+  const existingServers = (base.mcpServers ?? {}) as Record<string, unknown>;
   const merged = {
-    ...existing,
+    ...base,
     mcpServers: {
       ...existingServers,
       ...(mcpConfig.mcpServers as Record<string, unknown>),

@@ -24,7 +24,6 @@ import {
 } from "../src/desktop/process.js";
 import { runUpdate } from "../src/desktop/update.js";
 import { runInstall as runHooksInstall } from "../src/hooks/install.js";
-import { runMcpServer } from "../src/hooks/mcp-server.js";
 import {
   getKillswitchState,
   setKillswitchState,
@@ -131,6 +130,15 @@ async function main() {
     return;
   }
 
+  // `petdex mcp-server` is also a hot path run as a subprocess by
+  // Antigravity. Any stdout output (telemetry notice, help text)
+  // before the client sends `initialize` breaks the MCP handshake.
+  if (cmd === "mcp-server") {
+    const { runMcpServer } = await import("../src/hooks/mcp-server.js");
+    await runMcpServer();
+    return;
+  }
+
   if (!cmd || cmd === "--help" || cmd === "-h" || cmd === "help") {
     printHelp();
     return;
@@ -168,9 +176,6 @@ async function main() {
       break;
     case "list":
       await cmdList();
-      break;
-    case "mcp-server":
-      await runMcpServer();
       break;
     case "hooks":
       await cmdHooks(args.slice(1));

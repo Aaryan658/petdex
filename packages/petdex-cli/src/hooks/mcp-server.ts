@@ -7,6 +7,11 @@
  *
  * Protocol: JSON-RPC 2.0 over stdin/stdout (standard MCP transport).
  * No external MCP SDK dependency — the surface is small enough to inline.
+ *
+ * IMPORTANT: We MUST NOT write anything to stdout until the client sends
+ * an `initialize` request. The MCP lifecycle requires the client to be the
+ * first speaker. Any unsolicited stdout output (startup message, telemetry
+ * notice, etc.) breaks the handshake.
  */
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -137,7 +142,6 @@ const TOOLS = [
 
 function sendMessage(msg: JsonRpcResponse): void {
   const line = JSON.stringify(msg);
-  // MCP uses \n-delimited JSON over stdio
   process.stdout.write(`${line}\n`);
 }
 
@@ -154,11 +158,17 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
 
   switch (method) {
     case "initialize": {
+      // MCP protocol version negotiation: return the version the client
+      // requested (or a reasonable default). Per the MCP spec, protocol
+      // versions are date-based (e.g. "2025-03-26"). The serverInfo
+      // version is separate — it's our own package version.
+      const clientVersion =
+        (params?.protocolVersion as string | undefined) ?? "2025-03-26";
       sendMessage({
         jsonrpc: "2.0",
         id,
         result: {
-          protocolVersion: "0.1.0",
+          protocolVersion: clientVersion,
           capabilities: {
             tools: {
               listChanged: false,
@@ -291,7 +301,6 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
     }
 
     case "notifications/initialized": {
-      // No-op: Antigravity sends this after initialization.
       return;
     }
 
@@ -310,7 +319,6 @@ export async function runMcpServer(): Promise<void> {
   process.stdin.on("data", (chunk: string) => {
     buffer += chunk;
     const lines = buffer.split("\n");
-    // Keep the last partial line in the buffer
     buffer = lines.pop() ?? "";
 
     for (const line of lines) {
@@ -319,15 +327,12 @@ export async function runMcpServer(): Promise<void> {
 
       try {
         const req = JSON.parse(trimmed) as JsonRpcRequest;
-        // Fire-and-forget: handle asynchronously but don't await
-        // here to avoid blocking stdin processing.
         handleRequest(req).catch((err) => {
           sendMessage(
             errorResponse(req.id, -32603, `Internal error: ${(err as Error).message}`),
           );
         });
       } catch (err) {
-        // Malformed JSON — respond with parse error per JSON-RPC spec
         sendMessage({
           jsonrpc: "2.0",
           id: null,
@@ -341,14 +346,10 @@ export async function runMcpServer(): Promise<void> {
   });
 
   process.stdin.on("end", () => {
-    // stdin closed — server should exit
     process.exit(0);
   });
 
-  // Signal that the server is ready
-  sendMessage({
-    jsonrpc: "2.0",
-    id: null,
-    result: { message: "petdex-mcp-server started" },
-  });
+  // Do NOT write anything to stdout here. The MCP lifecycle requires
+  // the client's `initialize` request to be the first interaction.
+  // We wait silently until input arrives on stdin.
 }

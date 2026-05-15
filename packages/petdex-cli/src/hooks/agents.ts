@@ -106,11 +106,20 @@ export function resolveOpenCodeConfigDir(
   return path.join(home, ".config", "opencode");
 }
 
-/** Antigravity MCP config path (global scope). */
-export function antigravityMcpConfigPath(): string {
-  // Antigravity stores global MCP config in its user data directory.
-  // On Windows: %LOCALAPPDATA%\Programs\antigravity\User\mcp_config.json
-  // On macOS/Linux: ~/.antigravity/mcp_config.json
+/**
+ * Antigravity MCP config paths (both possible locations).
+ *
+ * Antigravity stores its global MCP config in different places depending
+ * on the platform:
+ *
+ *   Windows: %LOCALAPPDATA%\Programs\antigravity\User\mcp_config.json
+ *   macOS/Linux: ~/.antigravity/mcp_config.json
+ *
+ * We return [primary, fallback] — the first is the platform default,
+ * the second is the other location (in case the user has a non-standard
+ * setup or upgraded from a different config location).
+ */
+export function antigravityMcpConfigPaths(): [string, string] {
   const localAppData =
     process.env.LOCALAPPDATA ?? path.join(HOME, "AppData", "Local");
   const winPath = path.join(
@@ -120,13 +129,41 @@ export function antigravityMcpConfigPath(): string {
     "User",
     "mcp_config.json",
   );
-  // Prefer ~/.antigravity/mcp_config.json (used on macOS/Linux and
-  // some Windows Antigravity configurations), fall back to the
-  // Programs dir path.
   const unixPath = path.join(HOME, ".antigravity", "mcp_config.json");
-  // We return the path that exists, or the Unix-style default.
-  // The installer will try both.
-  return unixPath;
+  if (process.platform === "win32") {
+    return [winPath, unixPath];
+  }
+  return [unixPath, winPath];
+}
+
+/**
+ * Resolve the Antigravity MCP config path that actually exists, or
+ * return the platform-default if neither exists.
+ */
+export async function resolveAntigravityMcpConfigPath(): Promise<string> {
+  const { stat } = await import("node:fs/promises");
+  const [primary, secondary] = antigravityMcpConfigPaths();
+  try {
+    await stat(primary);
+    return primary;
+  } catch {
+    try {
+      await stat(secondary);
+      return secondary;
+    } catch {
+      return primary;
+    }
+  }
+}
+
+/**
+ * Synchronous version — returns the platform-default primary path.
+ * The async `resolveAntigravityMcpConfigPath()` should be used at
+ * install time; this is only for the static Agent configFile field.
+ */
+export function antigravityMcpConfigPath(): string {
+  const [primary] = antigravityMcpConfigPaths();
+  return primary;
 }
 
 export function antigravityGlobalMcpConfigPath(): string {
