@@ -272,8 +272,19 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
         }
 
         case "petdex_status": {
-          const token = await readToken();
-          const alive = token !== null;
+          // Probe the live sidecar health endpoint instead of just checking
+          // token presence — the token file persists across restarts and is
+          // not removed on shutdown, so token presence alone is not a reliable
+          // indicator of whether the desktop is currently running.
+          let reachable = false;
+          try {
+            const res = await fetch(`${SIDECAR_URL}/health`, {
+              signal: AbortSignal.timeout(500),
+            });
+            reachable = res.ok;
+          } catch {
+            reachable = false;
+          }
           sendMessage({
             jsonrpc: "2.0",
             id,
@@ -281,7 +292,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
               content: [
                 {
                   type: "text",
-                  text: alive
+                  text: reachable
                     ? "Petdex desktop is reachable."
                     : "Petdex desktop not detected. Start it with `petdex up`.",
                 },
@@ -314,6 +325,12 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
 
 export async function runMcpServer(): Promise<void> {
   let buffer = "";
+  let pending = 0;
+  let draining = false;
+
+  function exitWhenDrained() {
+    if (pending === 0) process.exit(0);
+  }
 
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (chunk: string) => {
@@ -327,11 +344,17 @@ export async function runMcpServer(): Promise<void> {
 
       try {
         const req = JSON.parse(trimmed) as JsonRpcRequest;
-        handleRequest(req).catch((err) => {
-          sendMessage(
-            errorResponse(req.id, -32603, `Internal error: ${(err as Error).message}`),
-          );
-        });
+        pending++;
+        handleRequest(req)
+          .catch((err) => {
+            sendMessage(
+              errorResponse(req.id, -32603, `Internal error: ${(err as Error).message}`),
+            );
+          })
+          .finally(() => {
+            pending--;
+            if (draining) exitWhenDrained();
+          });
       } catch (err) {
         sendMessage({
           jsonrpc: "2.0",
@@ -346,7 +369,10 @@ export async function runMcpServer(): Promise<void> {
   });
 
   process.stdin.on("end", () => {
-    process.exit(0);
+    draining = true;
+    // Give pending requests up to 3s to complete before force-exit
+    exitWhenDrained();
+    setTimeout(() => process.exit(0), 3000).unref();
   });
 
   // Do NOT write anything to stdout here. The MCP lifecycle requires
