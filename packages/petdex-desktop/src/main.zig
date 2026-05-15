@@ -26,6 +26,7 @@ const agent_assets = [_]AgentAsset{
     .{ .name = "codex.svg", .bytes = @embedFile("assets/agents/codex.svg") },
     .{ .name = "gemini.svg", .bytes = @embedFile("assets/agents/gemini.svg") },
     .{ .name = "opencode.svg", .bytes = @embedFile("assets/agents/opencode.svg") },
+    .{ .name = "antigravity.svg", .bytes = @embedFile("assets/agents/antigravity.svg") },
     .{ .name = "fallback.svg", .bytes = @embedFile("assets/agents/fallback.svg") },
 };
 

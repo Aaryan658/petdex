@@ -25,7 +25,7 @@ import {
   type Agent,
   PETDEX_PORT,
   SIDECAR_URL,
-  antigravityMcpConfigPath,
+  antigravityMcpConfigPaths,
   antigravitySkillDir,
 } from "./agents.js";
 import { tokenPath } from "./killswitch.js";
@@ -134,25 +134,28 @@ async function uninstallForAgent(agent: Agent): Promise<UninstallResult> {
   }
 
   // Antigravity: remove the MCP server entry and the Skill directory.
+  // Install may have written to either the primary or secondary MCP config
+  // path (see resolveAntigravityMcpConfigPath), so we try both.
   if (agent.id === "antigravity") {
     let changed = false;
-    // Strip petdex from MCP config
-    try {
-      const mcpConfigPath = antigravityMcpConfigPath();
-      if (existsSync(mcpConfigPath)) {
-        const text = await readFile(mcpConfigPath, "utf8");
-        const parsed = JSON.parse(text) as Record<string, unknown>;
-        const servers = (parsed.mcpServers ?? {}) as Record<string, unknown>;
-        if (servers.petdex) {
-          const { petdex: _remove, ...rest } = servers;
-          parsed.mcpServers = rest;
-          const backupPath = await maybeBackup(mcpConfigPath);
-          await writeFile(mcpConfigPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-          changed = true;
+    const [primary, secondary] = antigravityMcpConfigPaths();
+    for (const mcpConfigPath of [primary, secondary]) {
+      try {
+        if (existsSync(mcpConfigPath)) {
+          const text = await readFile(mcpConfigPath, "utf8");
+          const parsed = JSON.parse(text) as Record<string, unknown>;
+          const servers = (parsed.mcpServers ?? {}) as Record<string, unknown>;
+          if (servers.petdex) {
+            const { petdex: _remove, ...rest } = servers;
+            parsed.mcpServers = rest;
+            const backupPath = await maybeBackup(mcpConfigPath);
+            await writeFile(mcpConfigPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+            changed = true;
+          }
         }
+      } catch {
+        // Best effort for each path
       }
-    } catch {
-      // Best effort
     }
     // Remove the Skill directory
     try {
