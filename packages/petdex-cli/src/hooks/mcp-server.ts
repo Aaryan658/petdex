@@ -220,7 +220,9 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
         case "petdex_set_state": {
           const state = args.state as string;
           if (!state) {
-            sendMessage(errorResponse(id, -32602, "Missing required argument: state"));
+            sendMessage(
+              errorResponse(id, -32602, "Missing required argument: state"),
+            );
             return;
           }
           const body: Record<string, unknown> = {
@@ -251,7 +253,9 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
         case "petdex_show_bubble": {
           const text = args.text as string;
           if (!text) {
-            sendMessage(errorResponse(id, -32602, "Missing required argument: text"));
+            sendMessage(
+              errorResponse(id, -32602, "Missing required argument: text"),
+            );
             return;
           }
           const result = await postJson(BUBBLE_URL, {
@@ -307,9 +311,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
         }
 
         default: {
-          sendMessage(
-            errorResponse(id, -32601, `Unknown tool: ${toolName}`),
-          );
+          sendMessage(errorResponse(id, -32601, `Unknown tool: ${toolName}`));
           return;
         }
       }
@@ -320,9 +322,7 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
     }
 
     default: {
-      sendMessage(
-        errorResponse(id, -32601, `Unknown method: ${method}`),
-      );
+      sendMessage(errorResponse(id, -32601, `Unknown method: ${method}`));
     }
   }
 }
@@ -347,7 +347,8 @@ export async function runMcpServer(): Promise<void> {
   }
 
   process.stdin.on("data", (chunk: Uint8Array | string) => {
-    const raw = typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
+    const raw =
+      typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
     // Append to buffer
     const newBuf = new Uint8Array(buffer.length + raw.length);
     newBuf.set(buffer);
@@ -356,8 +357,10 @@ export async function runMcpServer(): Promise<void> {
 
     // Process as many complete MCP frames as possible
     while (true) {
-      // Look for \r\n\r\n (empty line) to find the end of headers
-      const headerEnd = findSequence(buffer, new Uint8Array([0x0d, 0x0a, 0x0d, 0x0a]));
+      // Look for an empty line to find the end of headers. The MCP spec uses
+      // CRLF, but some clients send LF-only frames.
+      const headerBoundary = findHeaderBoundary(buffer);
+      const headerEnd = headerBoundary.index;
       if (headerEnd === -1) break; // Incomplete headers — wait for more data
 
       // Extract header section and parse Content-Length
@@ -366,11 +369,11 @@ export async function runMcpServer(): Promise<void> {
       const contentLengthMatch = headerStr.match(/Content-Length:\s*(\d+)/i);
       if (!contentLengthMatch) {
         // Malformed header — discard this frame and try the next
-        buffer = buffer.slice(headerEnd + 4);
+        buffer = buffer.slice(headerEnd + headerBoundary.length);
         continue;
       }
       const contentLength = parseInt(contentLengthMatch[1], 10);
-      const bodyStart = headerEnd + 4; // Skip \r\n\r\n
+      const bodyStart = headerEnd + headerBoundary.length;
       const frameEnd = bodyStart + contentLength;
 
       if (buffer.length < frameEnd) break; // Incomplete body — wait for more data
@@ -388,7 +391,11 @@ export async function runMcpServer(): Promise<void> {
         handleRequest(req)
           .catch((err) => {
             sendMessage(
-              errorResponse(req.id, -32603, `Internal error: ${(err as Error).message}`),
+              errorResponse(
+                req.id,
+                -32603,
+                `Internal error: ${(err as Error).message}`,
+              ),
             );
           })
           .finally(() => {
@@ -429,4 +436,15 @@ function findSequence(haystack: Uint8Array, needle: Uint8Array): number {
     return i;
   }
   return -1;
+}
+
+function findHeaderBoundary(buffer: Uint8Array): {
+  index: number;
+  length: number;
+} {
+  const crlf = findSequence(buffer, new Uint8Array([0x0d, 0x0a, 0x0d, 0x0a]));
+  if (crlf !== -1) return { index: crlf, length: 4 };
+  const lf = findSequence(buffer, new Uint8Array([0x0a, 0x0a]));
+  if (lf !== -1) return { index: lf, length: 2 };
+  return { index: -1, length: 0 };
 }

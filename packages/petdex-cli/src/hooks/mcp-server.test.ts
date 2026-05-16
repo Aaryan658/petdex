@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 
-function frame(message: unknown): string {
+function frame(message: unknown, newline: "\r\n" | "\n" = "\r\n"): string {
   const body = JSON.stringify(message);
-  return `Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`;
+  return `Content-Length: ${Buffer.byteLength(body, "utf8")}${newline}${newline}${body}`;
 }
 
 function parseFrames(output: string): unknown[] {
@@ -109,6 +109,28 @@ describe("Petdex MCP server stdio", () => {
           { name: "petdex_status" },
         ],
       },
+    });
+  });
+
+  test("accepts LF-only client frames", async () => {
+    const initialize = frame(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-03-26" },
+      },
+      "\n",
+    );
+
+    const result = await runServer(initialize);
+
+    expect(result.stderr).toBe("");
+    expect(result.code).toBe(0);
+    expect(result.frames[0]).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { serverInfo: { name: "petdex-mcp-server" } },
     });
   });
 });
