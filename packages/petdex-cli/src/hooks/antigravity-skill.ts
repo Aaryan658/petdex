@@ -13,7 +13,7 @@ import path from "node:path";
 import { PERSIST_PATH } from "./persist-binary.js";
 
 export function antigravitySkillDir(): string {
-  return path.join(homedir(), ".antigravity", "skills", "petdex");
+  return path.join(homedir(), ".gemini", "antigravity", "skills", "petdex");
 }
 
 /**

@@ -23,10 +23,10 @@ import pc from "picocolors";
 import {
   AGENTS,
   type Agent,
-  PETDEX_PORT,
-  SIDECAR_URL,
   antigravityMcpConfigPaths,
   antigravitySkillDir,
+  PETDEX_PORT,
+  SIDECAR_URL,
 } from "./agents.js";
 import { tokenPath } from "./killswitch.js";
 import { uninstallSlashCommand } from "./slash-command.js";
@@ -132,7 +132,8 @@ type UninstallResult = {
 async function uninstallForAgent(agent: Agent): Promise<UninstallResult> {
   // OpenCode: just delete the plugin file we wrote.
   if (agent.id === "opencode") {
-    if (!existsSync(agent.configFile)) return { removed: false, backupPath: null };
+    if (!existsSync(agent.configFile))
+      return { removed: false, backupPath: null };
     const backupPath = await maybeBackup(agent.configFile);
     await rm(agent.configFile, { force: true });
     return { removed: true, backupPath };
@@ -143,8 +144,7 @@ async function uninstallForAgent(agent: Agent): Promise<UninstallResult> {
   // path (see resolveAntigravityMcpConfigPath), so we try both.
   if (agent.id === "antigravity") {
     let changed = false;
-    const [primary, secondary] = antigravityMcpConfigPaths();
-    for (const mcpConfigPath of [primary, secondary]) {
+    for (const mcpConfigPath of antigravityMcpConfigPaths()) {
       try {
         if (existsSync(mcpConfigPath)) {
           const text = await readFile(mcpConfigPath, "utf8");
@@ -154,7 +154,11 @@ async function uninstallForAgent(agent: Agent): Promise<UninstallResult> {
             const { petdex: _remove, ...rest } = servers;
             parsed.mcpServers = rest;
             const backupPath = await maybeBackup(mcpConfigPath);
-            await writeFile(mcpConfigPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+            await writeFile(
+              mcpConfigPath,
+              `${JSON.stringify(parsed, null, 2)}\n`,
+              "utf8",
+            );
             changed = true;
           }
         }
@@ -166,7 +170,12 @@ async function uninstallForAgent(agent: Agent): Promise<UninstallResult> {
     try {
       const skillDir = antigravitySkillDir();
       let skillExists = false;
-      try { await stat(skillDir); skillExists = true; } catch { /* not present */ }
+      try {
+        await stat(skillDir);
+        skillExists = true;
+      } catch {
+        /* not present */
+      }
       if (skillExists) {
         await rm(skillDir, { recursive: true, force: true });
         changed = true;
@@ -178,7 +187,8 @@ async function uninstallForAgent(agent: Agent): Promise<UninstallResult> {
   }
 
   // JSON-config agents: read, strip our entries, rewrite.
-  if (!existsSync(agent.configFile)) return { removed: false, backupPath: null };
+  if (!existsSync(agent.configFile))
+    return { removed: false, backupPath: null };
 
   let text: string;
   try {
@@ -218,9 +228,10 @@ async function uninstallForAgent(agent: Agent): Promise<UninstallResult> {
  * Empty event arrays AND an empty `hooks` object are removed too so
  * we don't leave stub keys behind.
  */
-export function stripPetdexHooks(
-  parsed: Record<string, unknown>,
-): { value: Record<string, unknown>; changed: boolean } {
+export function stripPetdexHooks(parsed: Record<string, unknown>): {
+  value: Record<string, unknown>;
+  changed: boolean;
+} {
   const out = { ...parsed };
   const hooks = out.hooks;
   if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) {
@@ -290,4 +301,3 @@ async function maybeBackup(file: string): Promise<string | null> {
   await writeFile(backup, content);
   return backup;
 }
-

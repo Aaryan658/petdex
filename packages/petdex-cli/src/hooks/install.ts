@@ -384,7 +384,7 @@ async function installForAntigravity(agent: Agent): Promise<void> {
   await mkdir(path.dirname(mcpConfigPath), { recursive: true });
   const mcpConfig = generateMcpConfig();
 
-  const existing = await readJson(mcpConfigPath);
+  const existing = await readAntigravityMcpJson(mcpConfigPath);
   if (existing.kind === "error") {
     throw new Error(
       `Refusing to overwrite ${mcpConfigPath}: ${existing.message}.\n   Fix the file (or rename it) and run \`petdex hooks install\` again.`,
@@ -412,4 +412,14 @@ async function installForAntigravity(agent: Agent): Promise<void> {
   const skillDir = antigravitySkillDir();
   await mkdir(skillDir, { recursive: true });
   await writeFile(path.join(skillDir, "SKILL.md"), generateSkillMd(), "utf8");
+}
+
+async function readAntigravityMcpJson(file: string): Promise<ReadJsonResult> {
+  try {
+    const text = await readFile(file, "utf8");
+    if (text.trim() === "") return { kind: "missing" };
+  } catch {
+    return readJson(file);
+  }
+  return readJson(file);
 }
