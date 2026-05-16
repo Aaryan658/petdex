@@ -4,7 +4,7 @@
  * Generates a Petdex Agent Skill that tells the Antigravity agent how to
  * communicate with the petdex desktop mascot via MCP tools.
  *
- * The skill is installed to ~/.antigravity/skills/petdex/ and follows
+ * The skill is installed to ~/.gemini/antigravity/skills/petdex/ and follows
  * the open Agent Skills format (SKILL.md + optional scripts).
  */
 import { homedir } from "node:os";

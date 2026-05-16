@@ -7,7 +7,8 @@
  * Detects 4 agents today; adding a 5th is a single AGENTS entry away.
  */
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 
 import * as p from "@clack/prompts";
@@ -24,9 +25,16 @@ import {
 } from "./agents.js";
 import { generateMcpConfig, generateSkillMd } from "./antigravity-skill.js";
 import { PERSIST_PATH, persistRunningBinary } from "./persist-binary.js";
-import { installSlashCommand } from "./slash-command.js";
+import { installSlashCommand, uninstallSlashCommand } from "./slash-command.js";
 
 type Detection = { agent: Agent; installed: boolean };
+
+const LEGACY_ANTIGRAVITY_SKILL_DIR = path.join(
+  homedir(),
+  ".antigravity",
+  "skills",
+  "petdex",
+);
 
 export async function detectAgents(): Promise<Detection[]> {
   return Promise.all(
@@ -110,11 +118,14 @@ export async function runInstall(): Promise<HooksInstallResult> {
   const summary: string[] = [];
   const followUps: { agent: string; notes: PostInstallNote[] }[] = [];
   const installedAgents: string[] = [];
+  const selectedIds = new Set(selected);
   for (const id of selected) {
     const agent = AGENTS.find((a) => a.id === id);
     if (!agent) continue;
     try {
-      const result = await installForAgent(agent);
+      const result = await installForAgent(agent, {
+        installSlashCommand: shouldInstallSlashCommand(agent, selectedIds),
+      });
       installedAgents.push(agent.id);
       // Keep summary lines short and uniform — earlier the long
       // backup filename + full config path made @clack/prompts'
@@ -183,7 +194,23 @@ export async function runInstall(): Promise<HooksInstallResult> {
 
 export type InstallResult = { backupPath: string | null };
 
-export async function installForAgent(agent: Agent): Promise<InstallResult> {
+export type InstallForAgentOptions = {
+  installSlashCommand?: boolean;
+};
+
+export function shouldInstallSlashCommand(
+  agent: Agent,
+  selectedIds: Set<string>,
+): boolean {
+  return agent.id !== "antigravity" && !(
+    agent.id === "gemini" && selectedIds.has("antigravity")
+  );
+}
+
+export async function installForAgent(
+  agent: Agent,
+  options: InstallForAgentOptions = {},
+): Promise<InstallResult> {
   await mkdir(path.dirname(agent.configFile), { recursive: true });
 
   const config = agent.build();
@@ -193,11 +220,15 @@ export async function installForAgent(agent: Agent): Promise<InstallResult> {
   // installSlashCommand would overwrite the skill with a slash-command
   // body. Skip it entirely; the Antigravity installer handles the path.
   if (agent.id !== "antigravity") {
-    // /petdex slash command — installed alongside the hook config so
-    // users can toggle the killswitch from inside their agent without
-    // dropping to a shell. Idempotent: overwrites our own file, never
-    // user-authored content (we own the path under <agent>/commands/).
-    await installSlashCommand(agent);
+    if (options.installSlashCommand === false) {
+      await uninstallSlashCommand(agent);
+    } else {
+      // /petdex slash command — installed alongside the hook config so
+      // users can toggle the killswitch from inside their agent without
+      // dropping to a shell. Idempotent: overwrites our own file, never
+      // user-authored content (we own the path under <agent>/commands/).
+      await installSlashCommand(agent);
+    }
   }
 
   // OpenCode plugin is a JS source file — write it whole, no merge.
@@ -412,6 +443,7 @@ async function installForAntigravity(agent: Agent): Promise<void> {
   const skillDir = antigravitySkillDir();
   await mkdir(skillDir, { recursive: true });
   await writeFile(path.join(skillDir, "SKILL.md"), generateSkillMd(), "utf8");
+  await rm(LEGACY_ANTIGRAVITY_SKILL_DIR, { recursive: true, force: true });
 }
 
 async function readAntigravityMcpJson(file: string): Promise<ReadJsonResult> {
