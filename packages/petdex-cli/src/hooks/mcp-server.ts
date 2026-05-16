@@ -28,6 +28,8 @@ const KILLSWITCH_PATH = path.join(
   "hooks-disabled",
 );
 const VERSION = "0.1.0";
+type TransportMode = "framed" | "jsonl";
+let transportMode: TransportMode = "framed";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -142,6 +144,10 @@ const TOOLS = [
 
 function sendMessage(msg: JsonRpcResponse): void {
   const body = JSON.stringify(msg);
+  if (transportMode === "jsonl") {
+    process.stdout.write(`${body}\n`);
+    return;
+  }
   const encoded = new TextEncoder().encode(body);
   // MCP stdio framing: Content-Length header + empty line + JSON body
   const header = `Content-Length: ${encoded.length}\r\n\r\n`;
@@ -327,20 +333,11 @@ async function handleRequest(req: JsonRpcRequest): Promise<void> {
   }
 }
 
-/**
- * MCP stdio transport uses Content-Length framing (not newline-delimited JSON):
- *
- *   Content-Length: 45\r\n
- *   \r\n
- *   {"jsonrpc":"2.0","id":1,"result":{...}}
- *
- * The header is terminated by \r\n\r\n. The body is exactly Content-Length bytes
- * (raw, not line-oriented). We buffer raw bytes and extract messages one at a time.
- */
 export async function runMcpServer(): Promise<void> {
   let buffer = new Uint8Array(0);
   let pending = 0;
   let draining = false;
+  const decoder = new TextDecoder();
 
   function exitWhenDrained() {
     if (pending === 0) process.exit(0);
@@ -355,20 +352,28 @@ export async function runMcpServer(): Promise<void> {
     newBuf.set(raw, buffer.length);
     buffer = newBuf;
 
-    // Process as many complete MCP frames as possible
     while (true) {
-      // Look for an empty line to find the end of headers. The MCP spec uses
-      // CRLF, but some clients send LF-only frames.
+      const firstByte = firstNonWhitespaceByte(buffer);
+      if (firstByte === 0x7b || firstByte === 0x5b) {
+        const lineEnd = findSequence(buffer, new Uint8Array([0x0a]));
+        if (lineEnd === -1) break;
+        const lineBytes = trimTrailingCarriageReturn(buffer.slice(0, lineEnd));
+        buffer = buffer.slice(lineEnd + 1);
+        const line = decoder.decode(lineBytes).trim();
+        if (!line) continue;
+        transportMode = "jsonl";
+        dispatchRequest(line);
+        continue;
+      }
+
       const headerBoundary = findHeaderBoundary(buffer);
       const headerEnd = headerBoundary.index;
-      if (headerEnd === -1) break; // Incomplete headers — wait for more data
+      if (headerEnd === -1) break;
 
-      // Extract header section and parse Content-Length
       const headerSection = buffer.slice(0, headerEnd);
-      const headerStr = new TextDecoder().decode(headerSection);
+      const headerStr = decoder.decode(headerSection);
       const contentLengthMatch = headerStr.match(/Content-Length:\s*(\d+)/i);
       if (!contentLengthMatch) {
-        // Malformed header — discard this frame and try the next
         buffer = buffer.slice(headerEnd + headerBoundary.length);
         continue;
       }
@@ -376,42 +381,13 @@ export async function runMcpServer(): Promise<void> {
       const bodyStart = headerEnd + headerBoundary.length;
       const frameEnd = bodyStart + contentLength;
 
-      if (buffer.length < frameEnd) break; // Incomplete body — wait for more data
+      if (buffer.length < frameEnd) break;
 
-      // Extract and parse the JSON body
       const bodyBytes = buffer.slice(bodyStart, frameEnd);
-      const bodyStr = new TextDecoder().decode(bodyBytes);
-
-      // Slice remaining data off the buffer
+      const bodyStr = decoder.decode(bodyBytes);
       buffer = buffer.slice(frameEnd);
-
-      try {
-        const req = JSON.parse(bodyStr) as JsonRpcRequest;
-        pending++;
-        handleRequest(req)
-          .catch((err) => {
-            sendMessage(
-              errorResponse(
-                req.id,
-                -32603,
-                `Internal error: ${(err as Error).message}`,
-              ),
-            );
-          })
-          .finally(() => {
-            pending--;
-            if (draining) exitWhenDrained();
-          });
-      } catch (err) {
-        sendMessage({
-          jsonrpc: "2.0",
-          id: null,
-          error: {
-            code: -32700,
-            message: `Parse error: ${(err as Error).message}`,
-          },
-        });
-      }
+      transportMode = "framed";
+      dispatchRequest(bodyStr);
     }
   });
 
@@ -422,6 +398,36 @@ export async function runMcpServer(): Promise<void> {
   });
 
   // Do NOT write anything to stdout here.
+
+  function dispatchRequest(bodyStr: string) {
+    try {
+      const req = JSON.parse(bodyStr) as JsonRpcRequest;
+      pending++;
+      handleRequest(req)
+        .catch((err) => {
+          sendMessage(
+            errorResponse(
+              req.id,
+              -32603,
+              `Internal error: ${(err as Error).message}`,
+            ),
+          );
+        })
+        .finally(() => {
+          pending--;
+          if (draining) exitWhenDrained();
+        });
+    } catch (err) {
+      sendMessage({
+        jsonrpc: "2.0",
+        id: null,
+        error: {
+          code: -32700,
+          message: `Parse error: ${(err as Error).message}`,
+        },
+      });
+    }
+  }
 }
 
 /**
@@ -447,4 +453,18 @@ function findHeaderBoundary(buffer: Uint8Array): {
   const lf = findSequence(buffer, new Uint8Array([0x0a, 0x0a]));
   if (lf !== -1) return { index: lf, length: 2 };
   return { index: -1, length: 0 };
+}
+
+function firstNonWhitespaceByte(buffer: Uint8Array): number | null {
+  for (const byte of buffer) {
+    if (byte !== 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d) {
+      return byte;
+    }
+  }
+  return null;
+}
+
+function trimTrailingCarriageReturn(buffer: Uint8Array): Uint8Array {
+  if (buffer.at(-1) === 0x0d) return buffer.slice(0, -1);
+  return buffer;
 }

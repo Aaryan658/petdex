@@ -21,6 +21,14 @@ function parseFrames(output: string): unknown[] {
   return frames;
 }
 
+function parseJsonLines(output: string): unknown[] {
+  return output
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
 async function runServer(input: string, beforeInputDelay = 0) {
   const child = spawn(
     process.execPath,
@@ -132,5 +140,61 @@ describe("Petdex MCP server stdio", () => {
       id: 1,
       result: { serverInfo: { name: "petdex-mcp-server" } },
     });
+  });
+
+  test("accepts Antigravity JSONL initialize request", async () => {
+    const initialize = `${JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        clientInfo: { name: "antigravity-client", version: "v1.0.0" },
+        protocolVersion: "2025-11-25",
+        capabilities: {
+          elicitation: { form: {}, url: {} },
+          roots: { listChanged: true },
+        },
+      },
+    })}\n`;
+
+    const child = spawn(
+      process.execPath,
+      [
+        "-e",
+        'import("./src/hooks/mcp-server.ts").then(({ runMcpServer }) => runMcpServer())',
+      ],
+      {
+        cwd: process.cwd(),
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.stdin.end(initialize);
+    const code = await new Promise<number | null>((resolve) => {
+      child.on("close", resolve);
+    });
+
+    expect(stderr).toBe("");
+    expect(code).toBe(0);
+    expect(parseJsonLines(stdout)).toEqual([
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          protocolVersion: "2025-11-25",
+          capabilities: { tools: { listChanged: false } },
+          serverInfo: { name: "petdex-mcp-server", version: "0.1.0" },
+        },
+      },
+    ]);
   });
 });
