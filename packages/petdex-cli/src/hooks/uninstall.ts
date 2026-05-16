@@ -119,8 +119,19 @@ async function detectAgents(): Promise<Detection[]> {
   return Promise.all(
     AGENTS.map(async (agent) => ({
       agent,
-      installed: existsSync(agent.configDir),
+      installed:
+        agent.id === "antigravity"
+          ? antigravityInstalled()
+          : existsSync(agent.configDir),
     })),
+  );
+}
+
+function antigravityInstalled(): boolean {
+  return (
+    antigravityMcpConfigPaths().some((mcpPath) =>
+      existsSync(path.dirname(mcpPath)),
+    ) || existsSync(antigravitySkillDir())
   );
 }
 

@@ -164,6 +164,10 @@ export function antigravityMcpConfigPath(): string {
   return primary;
 }
 
+export function antigravityConfigDir(): string {
+  return path.dirname(antigravityMcpConfigPath());
+}
+
 export function antigravityGlobalMcpConfigPath(): string {
   return antigravityMcpConfigPath();
 }
@@ -530,7 +534,7 @@ export const AGENTS: Agent[] = [
   {
     id: "antigravity",
     displayName: "Antigravity",
-    configDir: path.join(HOME, ".gemini", "antigravity"),
+    configDir: antigravityConfigDir(),
     // Antigravity doesn't use a hooks JSON file. Instead we inject an
     // MCP server config and an Agent Skill. We point configFile to the
     // MCP config so the install/uninstall system knows what to write.
