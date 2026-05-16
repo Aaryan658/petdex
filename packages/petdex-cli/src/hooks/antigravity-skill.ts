@@ -117,7 +117,6 @@ export function generateMcpConfig(): Record<string, unknown> {
       petdex: {
         command: process.execPath,
         args: [PERSIST_PATH, "mcp-server"],
-        type: "stdio",
       },
     },
   };

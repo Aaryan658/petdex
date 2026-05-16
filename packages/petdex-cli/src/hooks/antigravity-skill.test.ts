@@ -10,7 +10,6 @@ describe("Antigravity MCP config", () => {
         petdex: {
           command: process.execPath,
           args: [PERSIST_PATH, "mcp-server"],
-          type: "stdio",
         },
       },
     });
