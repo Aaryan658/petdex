@@ -13,7 +13,11 @@ import path from "node:path";
 
 import pc from "picocolors";
 
-import { AGENTS, antigravityMcpConfigPaths, antigravitySkillDir } from "../hooks/agents.js";
+import {
+  AGENTS,
+  antigravityMcpConfigPaths,
+  antigravitySkillDir,
+} from "../hooks/agents.js";
 import { getKillswitchState } from "../hooks/killswitch.js";
 import { desktopBinPath, sidecarPath } from "./install.js";
 
@@ -231,18 +235,17 @@ function checkKillswitch(): CheckResult {
 function checkHooksInstalled(): CheckResult[] {
   const results: CheckResult[] = [];
   for (const agent of AGENTS) {
-    // Install may have written to either the primary or secondary MCP config
-    // path (see resolveAntigravityMcpConfigPath), so probe both for Antigravity.
     const resolvedConfigFile =
       agent.id === "antigravity"
         ? (() => {
-            const [primary, secondary] = antigravityMcpConfigPaths();
-            return existsSync(primary) ? primary : existsSync(secondary) ? secondary : primary;
+            const paths = antigravityMcpConfigPaths();
+            const [primary] = paths;
+            return paths.find((mcpPath) => existsSync(mcpPath)) ?? primary;
           })()
         : agent.configFile;
     const hookFileExists = existsSync(resolvedConfigFile);
     const slashFileExists = existsSync(agent.slashCommandPath);
-    if (!existsSync(agent.configDir)) {
+    if (!agentInstalled(agent)) {
       results.push({
         status: "info",
         label: agent.displayName,
@@ -306,6 +309,15 @@ function checkHooksInstalled(): CheckResult[] {
     });
   }
   return results;
+}
+
+function agentInstalled(agent: (typeof AGENTS)[number]): boolean {
+  if (agent.id !== "antigravity") return existsSync(agent.configDir);
+  return (
+    antigravityMcpConfigPaths().some((mcpPath) =>
+      existsSync(path.dirname(mcpPath)),
+    ) || existsSync(antigravitySkillDir())
+  );
 }
 
 function checkCodexFeatureFlag(): CheckResult {
