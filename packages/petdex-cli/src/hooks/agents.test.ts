@@ -251,6 +251,18 @@ describe("Antigravity config paths", () => {
   });
 });
 
+describe("Gemini slash command paths", () => {
+  test("uses Gemini CLI commands instead of Antigravity global workflows", () => {
+    const agent = AGENTS.find((a) => a.id === "gemini");
+    expect(agent?.slashCommandPath).toEndWith(
+      join(".gemini", "commands", "petdex.toml"),
+    );
+    expect(agent?.slashCommandPath).not.toContain(
+      join(".gemini", "antigravity", "global_workflows"),
+    );
+  });
+});
+
 describe("OpenCode hook plugin", () => {
   function getPluginSource(): string {
     const agent = AGENTS.find((a) => a.id === "opencode");

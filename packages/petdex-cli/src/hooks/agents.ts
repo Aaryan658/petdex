@@ -77,7 +77,7 @@ export type Agent = {
    *   - Claude Code:  ~/.claude/commands/petdex.md
    *   - Codex:        ~/.codex/prompts/petdex.md
    *   - OpenCode:     ~/.config/opencode/command/petdex.md
-   *   - Gemini:       ~/.gemini/antigravity/global_workflows/petdex.md
+   *   - Gemini:       ~/.gemini/commands/petdex.toml
    */
   slashCommandPath: string;
   /**
@@ -457,9 +457,8 @@ export const AGENTS: Agent[] = [
     slashCommandPath: path.join(
       HOME,
       ".gemini",
-      "antigravity",
-      "global_workflows",
-      "petdex.md",
+      "commands",
+      "petdex.toml",
     ),
     docsUrl: "https://google-gemini.github.io/gemini-cli/docs/hooks",
     hookEntries: [
