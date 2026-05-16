@@ -6,7 +6,7 @@
  *
  * Detects 4 agents today; adding a 5th is a single AGENTS entry away.
  */
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -16,18 +16,15 @@ import pc from "picocolors";
 import {
   AGENTS,
   type Agent,
+  antigravitySkillDir,
   PETDEX_PORT,
   type PostInstallNote,
-  SIDECAR_URL,
   resolveAntigravityMcpConfigPath,
-  antigravitySkillDir,
+  SIDECAR_URL,
 } from "./agents.js";
-import {
-  generateSkillMd,
-  generateMcpConfig,
-} from "./antigravity-skill.js";
-import { installSlashCommand } from "./slash-command.js";
+import { generateMcpConfig, generateSkillMd } from "./antigravity-skill.js";
 import { PERSIST_PATH, persistRunningBinary } from "./persist-binary.js";
+import { installSlashCommand } from "./slash-command.js";
 
 type Detection = { agent: Agent; installed: boolean };
 
@@ -69,10 +66,14 @@ export async function runInstall(): Promise<HooksInstallResult> {
     const { persistRunningBinary } = await import("./persist-binary");
     const result = await persistRunningBinary();
     if (!result.ok && result.reason) {
-      p.log.warn(`Could not persist petdex binary (${result.reason}). Bubbles will be disabled.`);
+      p.log.warn(
+        `Could not persist petdex binary (${result.reason}). Bubbles will be disabled.`,
+      );
     }
   } catch (err) {
-    p.log.warn(`Could not persist petdex binary (${(err as Error).message}). Bubbles will be disabled.`);
+    p.log.warn(
+      `Could not persist petdex binary (${(err as Error).message}). Bubbles will be disabled.`,
+    );
   }
 
   const detections = await detectAgents();
@@ -339,23 +340,19 @@ function collectCommands(entry: unknown): string[] {
  * This function is called from installForAgent when agent.id === "antigravity".
  */
 /**
- * Verify the persisted binary exists AND is a runnable petdex CLI
- * (has the --version command). A stale ~/.petdex/bin/petdex.js from
- * an older install might exist but lack the mcp-server subcommand,
- * which would make the Antigravity MCP server silently fail to start.
+ * Verify the persisted binary exists AND can start the Antigravity MCP server.
+ * A stale ~/.petdex/bin/petdex.js from an older install might exist but lack
+ * the mcp-server subcommand, which would make Antigravity silently fail.
  */
 async function validatePersistedBinary(): Promise<boolean> {
   try {
     await stat(PERSIST_PATH);
-    // Smoke-test: --version exits 0 only if this is a real Node.js script.
-    // If the file is truncated, corrupt, or from an incompatible build,
-    // execSync throws and we return false.
-    execSync(`"${process.execPath}" "${PERSIST_PATH}" --version`, {
+    const result = spawnSync(process.execPath, [PERSIST_PATH, "mcp-server"], {
       encoding: "utf8",
+      input: "",
       timeout: 5000,
-      stdio: "pipe",
     });
-    return true;
+    return result.status === 0 && result.stdout === "";
   } catch {
     return false;
   }
@@ -377,8 +374,8 @@ async function installForAntigravity(agent: Agent): Promise<void> {
   if (!binaryOk) {
     throw new Error(
       `Petdex persisted binary missing or not functional: ${PERSIST_PATH}.\n` +
-      `  The mcp-server subcommand is required for Antigravity integration.\n` +
-      `  Run \`npx petdex@latest hooks install\` to persist a fresh binary, then re-run.`,
+        `  The mcp-server subcommand is required for Antigravity integration.\n` +
+        `  Run \`npx petdex@latest hooks install\` to persist a fresh binary, then re-run.`,
     );
   }
 
@@ -396,9 +393,7 @@ async function installForAntigravity(agent: Agent): Promise<void> {
   const backupPath =
     existing.kind === "ok" ? await maybeBackup(mcpConfigPath) : null;
   const base =
-    existing.kind === "ok"
-      ? (existing.value as Record<string, unknown>)
-      : {};
+    existing.kind === "ok" ? (existing.value as Record<string, unknown>) : {};
   const existingServers = (base.mcpServers ?? {}) as Record<string, unknown>;
   const merged = {
     ...base,
@@ -407,11 +402,14 @@ async function installForAntigravity(agent: Agent): Promise<void> {
       ...(mcpConfig.mcpServers as Record<string, unknown>),
     },
   };
-  await writeFile(mcpConfigPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+  await writeFile(
+    mcpConfigPath,
+    `${JSON.stringify(merged, null, 2)}\n`,
+    "utf8",
+  );
 
   // 2. Install the Agent Skill (global scope only)
   const skillDir = antigravitySkillDir();
   await mkdir(skillDir, { recursive: true });
   await writeFile(path.join(skillDir, "SKILL.md"), generateSkillMd(), "utf8");
 }
-

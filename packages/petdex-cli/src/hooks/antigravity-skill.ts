@@ -10,6 +10,8 @@
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { PERSIST_PATH } from "./persist-binary.js";
+
 export function antigravitySkillDir(): string {
   return path.join(homedir(), ".antigravity", "skills", "petdex");
 }
@@ -98,7 +100,8 @@ mcp_config.json):
 
 This skill requires the petdex MCP server to be running.
 Configure it in Antigravity: Agent Panel → ... → MCP Servers.
-The server command is: \`node ~/.petdex/bin/petdex.js mcp-server\`
+The server command is installed with the same Node.js runtime that ran
+\`petdex hooks install\`: \`${process.execPath}\`
 
 Make sure petdex-desktop is running (\`petdex up\`) for the mascot to
 appear.
@@ -112,11 +115,8 @@ export function generateMcpConfig(): Record<string, unknown> {
   return {
     mcpServers: {
       petdex: {
-        command: "node",
-        args: [
-          homedir().replace(/\\/g, "/") + "/.petdex/bin/petdex.js",
-          "mcp-server",
-        ],
+        command: process.execPath,
+        args: [PERSIST_PATH, "mcp-server"],
         type: "stdio",
       },
     },
